@@ -1,80 +1,216 @@
 
-
 ;********************************
 ;**                            **
 ;** Phoenix SoftCrew ACTION!   **
 ;** Programme und Tips f. 8Bit **
 ;**                            **
 ;** Carsten Strotmann          **
-;** An der Kreutzbrede 20      **
-;**                            **
-;** D- 4410 Warendorf 1        **
-;** (02581) 8920               **
 ;**                            **
 ;********************************
 
+; erforderlicher Compiler: ACTION! Atari 8-Bit
 ; Programmname:Percom Haendler
 ; Programmierer:CS
 ; Filename:PERCOM.ACT
 ; erste Version:18.08.91
 ; letzte Aenderung:18.08.91
 ; Zweck:Aendert Percom Block
-; Bemerkung:
+;
+; Bemerkung
+; ---------
+; Apassungen durch EP ab 08.04.2022
+;
+; Verwendungszweck:
+; - Aenderung des PERCOM Blocks
+; - Formatieren von Disketten
+; - Testen von Disketten (nicht destruktiv)
+; - Pruefen von Disketten (destruktiv)
+;
+; Aenderungen: siehe externe HISTORY.TXT
+;
+; Programmversion: 19.06.2022
 ;
 ;
-;INCLUDE "SYSTEM.ACT"
+; Offen:
+; evtl Happy INIT
+; Verlassen via Kaltstart
+; ./.
+
+SET   $E = $25F1
+SET $491 = $25F1
+
+BYTE RTS=[$60] ;dummy RTS als 1. Byte
+
+INCLUDE "SYSTEM.ACT"
 
 MODULE
 
-BYTE drivenum,err,p_read
-CARD maxsec,bytes
-BYTE ARRAY percom($C),buff($1000),txt(40),
+BYTE drivenum,err,p_read,hsio_ok
+CARD maxsec,bytes,hsiosz
+
+BYTE ARRAY percom(12),buff(4096),txt(40),hsioadr(768),
            sdss(12)=[40 2 0 18 0 0 0 $80 0 0 0 0],
            sdds(12)=[40 2 0 18 1 0 0 $80 0 0 0 0],
-           mdss(12)=[40 2 0 26 0 4 0 $80 0 0 0 0],
-           mdds(12)=[40 2 0 26 1 4 0 $80 0 0 0 0],
            ddss(12)=[40 2 0 18 0 4 1 0 0 0 0 0],
            ddds(12)=[40 2 0 18 1 4 1 0 0 0 0 0],
+           d72s(12)=[80 2 0 18 0 4 1 0 0 0 0 0],
+           d72d(12)=[80 2 0 18 1 4 1 0 0 0 0 0],
            hdss(12)=[80 2 0 36 0 4 1 0 0 0 0 0],
            hdds(12)=[80 2 0 36 1 4 1 0 0 0 0 0]
 
-INCLUDE "PERCOM1.INC"
+INCLUDE "PERCOM1A.INC"
 
-PROC Read_Percom ()
+; --
 
- err=Sio (drivenum,$52,$40,7,buff,128,1)
- err=Sio (drivenum,$4E,$40,7,percom,12,0)
- ErrMess (err)
+PROC HSIO_Get ()
+ err=Sio (drivenum,$68,$40,1,buff,2,0)
+ IF err=1 THEN
+  hsiosz=buff(1)*$100+buff(0)
+  err=Sio (drivenum,$69,$40,5,hsioadr,hsiosz,hsioadr)
+  hsio_ok=err
+ FI
+RETURN
 
+;
+
+PROC MvBlock (BYTE POINTER dst,src, BYTE len)
+ DO
+  len==-1
+  IF len<>1 THEN
+   dst(len)=src(len)
+  FI
+ UNTIL len=0
+ OD
+RETURN
+
+; --
+
+PROC DiskSize ()
  maxsec=percom(0)*(percom(2)*$100+percom(3))
  maxsec==*(percom(4)+1)
  bytes =percom(6)*$100+percom(7)
- p_read=err
-
 RETURN
+
+; --
+
+PROC Read_Percom ()
+ err=Sio (drivenum,$4D,$00,5,buff,0,$FF03)
+ Pause (255)
+ err=Sio (drivenum,$52,$00,7,buff,0,4)
+ Pause (255)
+ err=Sio (drivenum,$4E,$40,7,percom,12,0)
+ ErrMess (err)
+ DiskSize ()
+ p_read=err
+RETURN
+
+; --
 
 PROC Write_Percom ()
-
  err=Sio (drivenum,$4F,$80,7,percom,12,0)
  ErrMess (err)
-
 RETURN
+
+; --
 
 PROC Format ()
-
- Write (20,10,"†∆ÔÚÌ·ÙÈÂÚÂ†")
+ Write (18,10,"†∆ÔÚÌ·ÙÈÂÚÂ†")
+ bytes=percom(6)*$100+percom(7)
  err=Sio (drivenum,$21,$40,$40,buff,bytes,1)
  ErrMess (err)
- Write (20,10,"            ")
+ Write (18,10,"            ")
+RETURN
+
+; --
+
+PROC Fmt22 ()
+ Write (18,10,"†∆ÔÚÌ·ÙÈÂÚÂ†Õƒ")
+ err=Sio (drivenum,$22,$40,$40,buff,128,0)
+ ErrMess (err)
+ Write (18,10,"              ")
+RETURN
+
+; --
+
+PROC Put_LBA ()
+
+ BYTE ch=$2FC
+ CARD u,b
+ Zero (buff,256)
+
+ Write (18,11,"Schreibe Sektor :")
+
+ u=0
+ DO
+  u==+1
+  IF u<4 THEN
+   b=$80
+  ELSE
+   b=bytes
+  FI
+  buff(0)=u mod 256
+  buff(1)=u/256
+  err=Sio (drivenum,$50,$80,$7,buff,b,u)
+  StrC (u,txt)
+  Write (35,11,txt)
+  ErrMess (err)
+ UNTIL u=maxsec OR ch=28
+ OD
+
+ Pause (200)
+ ch=$FF
+ Write (18,11,"                      ")
 
 RETURN
+
+; --
+
+PROC Chk_LBA ()
+
+ BYTE ch=$2FC
+ CARD u,b
+ Zero (buff,256)
+
+ Write (18,11,"Vergleiche Daten:")
+
+ u=0
+ DO
+  u==+1
+  IF u<4 THEN
+   b=$80
+  ELSE
+   b=bytes
+  FI
+  buff(0)=u mod 256
+  buff(1)=u/256
+  err=Sio (drivenum,$52,$40,$7,buff,b,u)
+  StrC (u,txt)
+  IF buff(0)<>u mod 256 OR buff(1)<>u/256 THEN
+   Write (18,11,"Vergleichsfehler:")
+   Write (35,11,txt)
+   Pause (255)
+   Write (18,11,"Vergleiche Daten:")
+  FI
+  Write (35,11,txt)
+  ErrMess (err)
+
+ UNTIL u=maxsec OR ch=28
+ OD
+
+ Pause (200)
+ ch=$FF
+ Write (18,11,"                      ")
+
+RETURN
+
+; --
 
 PROC Test()
 
  BYTE ch=$2FC
  CARD u,b
 
- Write (20,11,"Teste Sektor :")
+ Write (18,12,"Lese Sektor     :")
 
  u=0
  DO
@@ -86,16 +222,18 @@ PROC Test()
   FI
   err=Sio (drivenum,$52,$40,$7,buff,b,u)
   StrC (u,txt)
-  Write (34,11,txt)
+  Write (35,12,txt)
   ErrMess (err)
  UNTIL u=maxsec OR ch=28
  OD
 
  Pause (200)
  ch=$FF
- Write (20,11,"                    ")
+ Write (18,12,"                      ")
 
 RETURN
+
+; --
 
 PROC Mask ()
 
@@ -140,34 +278,39 @@ PROC Mask ()
  Print ("Ãaufwerk aktiv :")
 
  Position (1,10)
- Print ("^∆ormatieren ")
+ Print ("^∆ormatieren ^ÕD")
 
  Position (1,11)
- Print ("^‘est Disk ")
+ Print ("^–ut/^√hk LBA")
 
- Position (1,13)
- Print ("^”ingle Density 1S")
- Position (23,13)
- Print ("^⁄ Sgl. Dens. 2S")
+ Position (1,12)
+ Print ("^‘est Disk")
 
  Position (1,14)
- Print ("^Õedium Density 1S")
+ Print ("^”ingle Density 1S")
  Position (23,14)
- Print ("^Ÿ Med. Dens. 2S")
+ Print ("^⁄ Sgl. Dens. 2S")
 
  Position (1,15)
  Print ("^ƒouble Density 1S")
  Position (23,15)
- Print ("^ÿ Dbl. Dens. 2S")
+ Print ("^Ÿ Dbl. Dens. 2S")
 
  Position (1,16)
- Print ("^»igh   Density 1S")
+ Print ("^Œew8T  Density 1S")
  Position (23,16)
- Print ("^÷ Hgh. Dens. 2S")
+ Print ("^ÿ N8T. Dens. 2S")
 
- Write (0,23,"††††††®„©†±ππ±†–ËÔÂÓÈÿ†”ÔÊÙ√ÚÂ˜†††††††††")
+ Position (1,17)
+ Print ("^»igh   Density 1S")
+ Position (23,17)
+ Print ("^◊ Hgh. Dens. 2S")
+
+ Write (0,23,"†®„©†±ππ±†–ËÔÂÓÈÿ†”ÔÊÙ√ÚÂ˜¨†ˆÆ≤≤∞∂±π†Â†")
 
 RETURN
+
+; --
 
 PROC Fill_Mask ()
 
@@ -224,32 +367,32 @@ PROC Fill_Mask ()
 
 RETURN
 
+; --
+
 PROC Refresh ()
-
  Write_Percom ()
- Read_Percom ()
+ DiskSize ()
  Fill_Mask ()
-
 RETURN
 
+; --
+
 PROC Test_Form ()
-
-BYTE skstat=$D20F
-
+ BYTE skstat=$D20F
  IF (skstat & 8) = 0 THEN
   Format ()
  FI
-
 RETURN
+
+; --
 
 PROC Percom_Service ()
 
  BYTE key
  BYTE ARRAY value (3)
 
- drivenum = 1
+ drivenum = 0
  p_read=$FF
- MoveBlock (percom,sdss,12)
 
  Put (125)
  C_Off ()
@@ -258,132 +401,161 @@ PROC Percom_Service ()
  DO
   key=Inkey ()
 
-  IF key<'5 AND key>'0 THEN
+  IF key<'9 AND key>'0 THEN
    drivenum=key-48
+   hsio_ok=$FF
    Read_Percom ()
-   Refresh ()
+   HSIO_Get ()
+   Fill_mask ()
   FI
 
-  IF key='T OR key='t THEN
-   StrB (percom(0),value)
-   Position (14,5)
-   GetIn (value,2)
-   percom(0)=ValB(value)
-   Refresh ()
-  FI
+  IF drivenum<>0 THEN
 
-  IF key='R OR key='r THEN
-   StrB (percom(1),value)
-   Position (35,5)
-   GetIn (value,2)
-   percom(1)=ValB(value)
-   Refresh ()
-  FI
-
-  IF key='S OR key='s THEN
-   StrC (percom(2)*$100+percom(3),value)
-   Position (14,6)
-   GetIn (value,3)
-   percom(2)=ValC(value)/$100
-   percom(3)=ValB(value)
-   Refresh ()
-  FI
-
-  IF key='D or key='d THEN
-   percom(4)==XOR 1
-   Refresh ()
-  FI
-
-  IF key='A or key='a THEN
-   percom(5)==XOR 4
-   Refresh ()
-  FI
-
-  IF key='B OR key='b THEN
-   StrC (percom(6)*$100+percom(7),value)
-   Position (35,7)
-   GetIn (value,4)
-   percom(6)=ValC(value)/$100
-   percom(7)=ValB(value)
-   Refresh ()
-  FI
-
-  IF key='L or Key='l THEN
-   IF percom(8)=$FF THEN
-    percom(8)=$40
-   ELSE
-    percom(8)=$FF
+   IF key='T OR key='t THEN
+    StrB (percom(0),value)
+    Position (14,5)
+    GetIn (value,2)
+    percom(0)=ValB(value)
+    Refresh ()
    FI
-   Refresh ()
-  FI
 
-  IF key>='! AND key<='$ THEN
-   drivenum=key-32
-   Refresh ()
-  FI
+   IF key='R OR key='r THEN
+    StrB (percom(1),value)
+    Position (35,5)
+    GetIn (value,2)
+    percom(1)=ValB(value)
+    Refresh ()
+   FI
 
-  IF key=' THEN
-   Read_Percom ()
-   Fill_Mask ()
-   Test ()
-  FI
+   IF key='S OR key='s THEN
+    StrC (percom(2)*$100+percom(3),value)
+    Position (14,6)
+    GetIn (value,3)
+    percom(2)=ValC(value)/$100
+    percom(3)=ValB(value)
+    Refresh ()
+   FI
 
-  IF key=' THEN
-   MoveBlock (percom,sdss,12)
-   Refresh ()
-   Test_Form ()
-  FI
+   IF key='D or key='d THEN
+    percom(4)==XOR 1
+    Refresh ()
+   FI
 
-  IF key=' THEN
-   MoveBlock (percom,sdds,12)
-   Refresh ()
-   Test_Form ()
-  FI
+   IF key='A or key='a THEN
+    percom(5)==XOR 4
+    Refresh ()
+   FI
 
-  IF key='
+   IF key='B OR key='b THEN
+    StrC (percom(6)*$100+percom(7),value)
+    Position (35,7)
+    GetIn (value,4)
+    percom(6)=ValC(value)/$100
+    percom(7)=ValB(value)
+    Refresh ()
+   FI
+
+   IF key='L or Key='l THEN
+    IF percom(8)=$FF THEN
+     percom(8)=$40
+    ELSE
+     percom(8)=$FF
+    FI
+    Refresh ()
+   FI
+
+   IF key>='! AND key<='' THEN
+    drivenum=key-32
+    Refresh ()
+   FI
+
+   IF key=64 THEN
+    drivenum=8
+    Refresh ()
+   FI
+
+   IF key=' THEN
+    Read_Percom ()
+    Fill_Mask ()
+    Test ()
+   FI
+
+   IF key=' THEN
+    Read_Percom ()
+    Fill_Mask ()
+    Put_LBA ()
+   FI
+
+   IF key=' THEN
+    Read_Percom ()
+    Fill_Mask ()
+    Chk_LBA ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,sdss,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,sdds,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,ddss,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,ddds,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,d72s,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF Key=' THEN
+    MvBlock (percom,d72d,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,hdss,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    MvBlock (percom,hdds,12)
+    Refresh ()
+    Test_Form ()
+   FI
+
+   IF key=' THEN
+    Format ()
+   FI
+
+   IF Key='
  THEN
-   MoveBlock (percom,mdss,12)
-   Refresh ()
-   Test_Form ()
-  FI
+    Fmt22 ()
+   FI
 
-  IF key=' THEN
-   MoveBlock (percom,mdds,12)
-   Refresh ()
-   Test_Form ()
-  FI
-
-  IF key=' THEN
-   MoveBlock (percom,ddss,12)
-   Refresh ()
-   Test_Form ()
-  FI
-
-  IF key=' THEN
-   MoveBlock (percom,ddds,12)
-   Refresh ()
-   Test_Form ()
-  FI
-
-  IF key=' THEN
-   MoveBlock (percom,hdss,12)
-   Refresh ()
-   Test_Form ()
-  FI
-
-  IF key=' THEN
-   MoveBlock (percom,hdds,12)
-   Refresh ()
-   Test_Form ()
-  FI
-
-  IF key='  THEN
-   Format ()
   FI
 
  UNTIL key='q OR key='Q or key=27
  OD
 
  C_On ()
+ Put (125)
+ [$6C$0A$00]
 
 RETURN
