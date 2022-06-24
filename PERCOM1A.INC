@@ -1,5 +1,10 @@
+
 ; Includedatei fuer PERCOM.ACT
 ;---
+
+PROC hsiov ()
+ [$6C hsioadr]
+RETURN
 
 PROC siov=$E459 ()
 
@@ -24,7 +29,11 @@ dbuf=buf
 dbyt=byt
 daux=sec
 
-siov () ; ansprung der sioroutine
+ IF hsio_ok=1 THEN
+  hsiov ()
+ ELSE
+  siov () ; ansprung der sioroutine
+ FI
 
 RETURN (dstats)
 
