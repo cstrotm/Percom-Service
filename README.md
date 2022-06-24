@@ -1,10 +1,10 @@
 # Percom-Service
 Tool to work with Atari 8bit compatible disk drives that use the Percom drive API
 
-Author: Carsten Strotmann, Erhard Puetz
-Language: ACTION!
-Compiler/Interpreter: ACTION!
-Published: 1991-2022
+- Author: Carsten Strotmann, Erhard Puetz
+- Language: ACTION!
+- Compiler/Interpreter: ACTION!
+- Published: 1991-2022
 
 Tool to configure Percom Block Drives. This Tool can be used to test Disk integrity and to format all kind of 
 different Disk Formats available for Atari Disk Drives. 
